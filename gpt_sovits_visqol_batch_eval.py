@@ -58,10 +58,16 @@ class ResultEntry(TypedDict):
     Score: float
 
 
-FILENAME_PATTERN: Final[Pattern[str]] = re.compile(
-    r"(.+?_gpt(\d+)_sovits(\d+))_(.+)\.wav"
-)
 
+FILENAME_PATTERN: Final[Pattern[str]] = re.compile(
+    r"^([^_]+(_v[^_]+)?)_(.+?)_gpt(\d+)_sovits(\d+)\.wav$"
+)
+"""subgroups (1-indexed): no1: project+version; no3: reference name; no4: gpt epoch; no5: sovits epoch. E.g. kotomi_v2proplus_z4418_01360_gpt051_sovits069.wav"""
+
+MODEL_ID_PATTERN: Final[Pattern[str]] = re.compile(
+    r"^(.+?)_(gpt\d+_sovits\d+)$"
+)
+"""subgroups (1-indexed): no1: project_version; no2: gptN_sovitsN"""
 
 # ========== CACHE FUNCTIONS ==========
 
@@ -120,10 +126,10 @@ def process_single_pair(task: TaskDict, visqol_model_path: str) -> TaskDict:
 
 # ========== COPY CANDIDATES ==========
 
-def copy_candidates(target_models: Iterable[str], all_files: List[str],
+def copy_candidates(target_model_epochs: Iterable[str], all_files: List[str],
                     gen_audio_dir: str, candidates_dir: str) -> None:
-
-    if not target_models:
+    """target_models: list of target mode epochs, like 'gpt12_sovits55'"""
+    if not target_model_epochs:
         print("No models selected for copying.")
         return
 
@@ -135,14 +141,14 @@ def copy_candidates(target_models: Iterable[str], all_files: List[str],
 
     copied = skipped = missing = 0
 
-    for model_id in target_models:
-        prefix: str = model_id + "_"
+    for model_epochs in target_model_epochs:
         matches: List[str] = [
             f for f in all_files
-            if f.startswith(prefix) and f.endswith(".wav") and ".tmp" not in f
+            if f.endswith("_"+ model_epochs + ".wav")
         ]
 
         if not matches:
+            print(f"missing: {model_epochs}")
             missing += 1
             continue
 
@@ -232,10 +238,10 @@ def main() -> None:
         if not match:
             continue
 
-        model_id = match.group(1)
-        gpt_ep = int(match.group(2))
-        sovits_ep = int(match.group(3))
-        ref_id = match.group(4)
+        gpt_ep = int(match.group(4))
+        sovits_ep = int(match.group(5))
+        ref_id = match.group(3)
+        model_id = f"{match.group(1)}_gpt{gpt_ep:03d}_sovits{sovits_ep:03d}"
 
         if (model_id, ref_id) in cache_map:
             final_results.append({
@@ -335,10 +341,16 @@ def main() -> None:
     top_gpt = analyze_distribution(gpt_means, "GPT Epochs")
     top_sovits = analyze_distribution(sovits_means, "SoVITS Epochs")
 
-    candidates_to_copy: Set[str] = set(top_specific.index.tolist())
+    candidates_to_copy: Set[str] = set()
+    for model_id in top_specific.index.tolist():
+        match: Optional[re.Match[str]] = MODEL_ID_PATTERN.match(model_id)
+        if not match:
+            print(f"copy candidates warning: invalid model_id: {model_id}")
+            continue
+        candidates_to_copy.add(str(match.group(2)))
 
     if not top_specific.empty and not top_gpt.empty and not top_sovits.empty:
-        prefix = top_specific.index[0].split("_gpt")[0] # type: ignore
+        model_id :str = top_specific.index[0] # type: ignore
 
         gpt_eps = [int(x.split('_')[-1]) for x in top_gpt.index]
         sovits_eps = [int(x.split('_')[-1]) for x in top_sovits.index]
@@ -349,7 +361,7 @@ def main() -> None:
 
         for g in gpt_eps:
             for s in sovits_eps:
-                model_name = f"{prefix}_gpt{g:03d}_sovits{s:03d}"
+                model_name = f"gpt{g:03d}_sovits{s:03d}"
                 candidates_to_copy.add(model_name)
 
     copy_candidates(candidates_to_copy, gen_files, GEN_AUDIO_DIR, CANDIDATES_DIR)

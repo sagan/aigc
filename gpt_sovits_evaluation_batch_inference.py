@@ -18,9 +18,8 @@ from tqdm import tqdm
 
 script_directory = os.path.dirname(os.path.abspath(__file__))
 os.chdir(script_directory)
-
-# Add current directory to sys.path to ensure imports work
-sys.path.append(os.getcwd())
+# Important: Force local imports to take precedence over installed packages
+sys.path.insert(0, script_directory)
 
 # Import necessary modules from the existing GPT-SoVITS project
 try:
@@ -60,9 +59,9 @@ VERSION_SAMPLE_STEPS: Final[Dict[str, int]] = {
 def parse_epoch_range(range_str: Optional[str]) -> Optional[Set[int]]:
     """
     Parses a string like "20,30,40-45" into a set of integers {20, 30, 40, 41, ..., 45}.
-    Returns None if input is None or empty, implying 'all epochs'.
+    Returns None if input is None or empty or is "*", implying 'all epochs'.
     """
-    if not range_str:
+    if not range_str or range_str == "*":
         return None
     
     epochs: Set[int] = set()
@@ -193,7 +192,9 @@ def run_inference(args: Namespace):
             
             try:
                 generator = change_sovits_weights(sovits_path=sovits_path, prompt_language=ref_lang_ui, text_language=target_lang_ui) # type: ignore
-                next(generator) # type: ignore
+                # Important: consume all yields to ensure model loads completely
+                for _ in generator: # type: ignore
+                    pass
             except StopIteration:
                 pass
             except Exception as e:
@@ -204,7 +205,7 @@ def run_inference(args: Namespace):
                 input_filename = os.path.splitext(os.path.basename(input_txt_path))[0]
                 
                 # Format: 3-digit epoch number for better sorting (015, 050, 100)
-                output_fname = f"{args.project}_{args.version}_gpt{gpt_epoch:03d}_sovits{sovits_epoch:03d}_{input_filename}.wav"
+                output_fname = f"{args.project}_{args.version}_{input_filename}_gpt{gpt_epoch:03d}_sovits{sovits_epoch:03d}.wav"
                 output_full_path = os.path.join(args.output, output_fname)
 
                 if os.path.exists(output_full_path):
@@ -267,8 +268,8 @@ if __name__ == "__main__":
     parser.add_argument("--lang", default="ja", choices=["ja", "zh", "en", "mix", "auto"], help="Target language (default: ja)")
     
     # New arguments for fine-grained control
-    parser.add_argument("--gpt-epoch", help="Filter GPT epochs (e.g., '10,20-30'). If omitted, uses all.")
-    parser.add_argument("--sovits-epoch", help="Filter SoVITS epochs (e.g., '50,60-100'). If omitted, uses all.")
+    parser.add_argument("--gpt-epoch", help="Filter GPT epochs (e.g., '10,20-30'). If omitted or is '*', uses all.")
+    parser.add_argument("--sovits-epoch", help="Filter SoVITS epochs (e.g., '50,60-100'). If omitted or is '*', uses all.")
 
     args = parser.parse_args()
     
