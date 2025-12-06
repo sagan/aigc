@@ -1,5 +1,11 @@
 #/usr/bin/env python
 
+# Usage:
+# v4 model
+#   python gpt_sovits_visqol_batch_eval.py --visqol-path /data/visqol --visqol-model-path /data/visqol-model/lattice_tcditugenmeetpackhref_ls2_nl60_lr12_bs2048_learn.005_ep2400_train1_7_raw.tflite --gen-audio-dir /data/kotomi-evaluation/output --ref-audio-dir /data/kotomi-evaluation/input --candidates-dir /data/kotomi-evaluation/candidates
+# v2proplus model
+#   python gpt_sovits_visqol_batch_eval.py --visqol-path /data/visqol --visqol-model-path /data/visqol-model/lattice_tcditugenmeetpackhref_ls2_nl60_lr12_bs2048_learn.005_ep2400_train1_7_raw.tflite --gen-audio-dir /data/kotomi-evaluation/output --ref-audio-dir /data/kotomi-evaluation/input --candidates-dir /data/kotomi-evaluation/candidates --ref-audio-suffix _32k
+
 import os
 import re
 import subprocess
@@ -8,8 +14,8 @@ import argparse
 from concurrent.futures import ProcessPoolExecutor, Future, as_completed
 from typing import List, Dict, TypedDict, Optional, Tuple, Iterable, Set, Pattern, Final
 
-from tqdm import tqdm
-import pandas as pd
+from tqdm import tqdm # type: ignore
+import pandas as pd # type: ignore
 
 
 # ========== ARGUMENT PARSER ==========
@@ -17,6 +23,7 @@ import pandas as pd
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run ViSQOL evaluation on generated audio files.")
 
+    parser.add_argument("--visqol-path", type=str, default="/data/visqol", help="visqol binary path")
     parser.add_argument("--gen-audio-dir", type=str, default="/data/kotomi-evaluation/output")
     parser.add_argument("--ref-audio-dir", type=str, default="/data/kotomi-evaluation/input")
     parser.add_argument("--candidates-dir", type=str, default="/data/kotomi-evaluation/candidates")
@@ -24,7 +31,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cache-file", type=str, default="visqol_scores.json")
     parser.add_argument("--ref-audio-suffix", type=str, default="", help="reference audio filename suffix, e.g. '_32k'")
     parser.add_argument("--save-interval", type=int, default=10)
-    parser.add_argument("--max-threads", type=int, default=64)
+    parser.add_argument("--max-threads", type=int, default=1024)
 
     return parser.parse_args()
 
@@ -101,9 +108,9 @@ def save_cache(filepath: str, data: List[ModelScore]) -> None:
 
 # ========== PROCESSING FUNCTION ==========
 
-def process_single_pair(task: TaskDict, visqol_model_path: str) -> TaskDict:
+def process_single_pair(task: TaskDict, visqol_path: str, visqol_model_path: str) -> TaskDict:
     cmd: List[str] = [
-        "visqol", "--use_speech_mode",
+        visqol_path, "--use_speech_mode",
         "--reference_file", task['ref_path'],
         "--degraded_file", task['deg_path'],
         "--similarity_to_quality_model", visqol_model_path,
@@ -210,6 +217,7 @@ def main() -> None:
     REF_AUDIO_DIR:str = args.ref_audio_dir
     CANDIDATES_DIR:str = args.candidates_dir
     VISQOL_MODEL_PATH:str = args.visqol_model_path
+    VISQOL_PATH:str = args.visqol_path
     CACHE_FILE:str = args.cache_file
     SAVE_INTERVAL:int = args.save_interval
     MAX_THREADS:int = args.max_threads
@@ -222,6 +230,9 @@ def main() -> None:
 
     if not os.path.exists(GEN_AUDIO_DIR):
         print(f"Error: {GEN_AUDIO_DIR} not found.")
+        return
+    if not os.path.exists(VISQOL_PATH):
+        print(f"Error: visqol {VISQOL_PATH} not found")
         return
 
     gen_files: List[str] = [
@@ -236,6 +247,7 @@ def main() -> None:
     for f in gen_files:
         match: Optional[re.Match[str]] = FILENAME_PATTERN.match(f)
         if not match:
+            print(f"warning: filename {f} doesn't match mattern")
             continue
 
         gpt_ep = int(match.group(4))
@@ -266,6 +278,8 @@ def main() -> None:
                 "deg_path": deg_path,
                 "score": 0,
             })
+        else :
+            print(f"ref {ref_path} not found")
 
     # ---- RUN EVALUATION ----
     if tasks_to_run:
@@ -274,7 +288,7 @@ def main() -> None:
 
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             futures: List[Future[TaskDict]] = [
-                executor.submit(process_single_pair, t, VISQOL_MODEL_PATH)
+                executor.submit(process_single_pair, t, VISQOL_PATH, VISQOL_MODEL_PATH)
                 for t in tasks_to_run
             ]
 

@@ -3,7 +3,7 @@
 # put it in GPT-SoVITS project root path
 
 # Usage example
-#  python evaluation_batch_inference.py --ref /data/kotomi-evaluation/z4421_01700 --input /data/kotomi-evaluation/input --output /data/kotomi-evaluation/output --version v4 --project kotomi --gpt-epoch "1-100"   --sovits-epoch "1-100"
+#  python gpt_sovits_evaluation_batch_inference.py --ref /data/kotomi-evaluation/z4421_01700 --input /data/kotomi-evaluation/input --output /data/kotomi-evaluation/output --version v4 --project kotomi --gpt-epoch "1-100"   --sovits-epoch "1-100"
 
 import os
 import sys

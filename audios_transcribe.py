@@ -5,10 +5,13 @@
 
 import os
 import argparse
+import logging
+from typing import List
+
 import torch
 from transformers import pipeline
 from tqdm import tqdm
-import logging
+
 
 # Suppress HuggingFace warnings
 logging.getLogger("transformers").setLevel(logging.ERROR)
@@ -29,14 +32,14 @@ def main():
         return
 
     # 2. Scan files and determine work list
-    all_wavs = [
+    all_wavs :List[str] = [
         os.path.join(args.input_dir, f) 
-        for f in os.listdir(args.input_dir) 
+        for f in os.listdir(str(args.input_dir)) 
         if f.lower().endswith(".wav")
     ]
     all_wavs.sort()
 
-    files_to_process = []
+    files_to_process :List[str] = []
     skipped_count = 0
 
     for wav_path in all_wavs:

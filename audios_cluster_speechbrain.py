@@ -5,6 +5,8 @@
 import os
 import sys
 import shutil
+from typing import List, Any, Tuple
+
 import numpy as np
 import joblib
 import torch
@@ -19,14 +21,40 @@ import hdbscan
 # Configuration parameters
 # ========================
 EMBEDDINGS_CACHE_NAME = "embeddings_ecapa.joblib"
-MIN_DURATION_SEC = 1              # ECAPA is robust, can handle slightly shorter clips than Resemblyzer
-MIN_CLUSTER_SIZE = 15               # Minimum files to form a valid speaker cluster
-CONFIDENCE_THRESHOLD = 0.5         # Probability threshold to keep files in a cluster
-UMAP_COMPONENTS = 15                # Reduce 192-dim embedding to 15-dim for clustering
-UMAP_NEIGHBORS = 30                 # Local neighborhood size for UMAP
+
+# ECAPA is robust, can handle slightly shorter clips than Resemblyzer
+MIN_DURATION_SEC = 1.2
+
+# Minimum files to form a valid speaker cluster
+MIN_CLUSTER_SIZE = 5
+
+# Probability threshold to keep files in a cluster
+CONFIDENCE_THRESHOLD = 0.9
+
+# UMAP is acting as a feature extractor here, trying to project the audio onto a lower-dimensional manifold.
+# 2 to 5: Great for visualization, but you lose too much information. Distinct speakers might get merged.
+# 10 to 30: (The Sweet Spot) This retains enough variance to distinguish similar-sounding speakers but compresses the data enough for HDBSCAN to see clear density clusters.
+# > 50: Diminishing returns. You add computational overhead and dilute the density that HDBSCAN relies on.
+UMAP_COMPONENTS = 15
+
+# Local neighborhood size for UMAP
+# Lower (10-15): Focuses on very local structure.
+#   Result: Creates tighter, smaller clusters. Good if you have many speakers who sound slightly distinct.
+#   Risk: Might split a single speaker into multiple clusters (e.g., "Calm Speaker A" and "Excited Speaker A").
+# Higher (50-100): Focuses on the "big picture."
+#   Result: Merges clusters together.
+#   Risk: Might merge two similar-sounding speakers into one.
+# Balanced value: 30
+UMAP_NEIGHBORS = 15
+
+# controls how tightly UMAP is allowed to pack points together.
+# 0.0: Allows points to clump directly on top of each other. This is usually best for HDBSCAN.
+# 0.1: Prevents points from stacking. Increasing this slightly might help if your clusters are too "blobby" and indistinct.
+MIN_DISTANCE = 0.0
 # ========================
 
-def load_model():
+
+def load_model() -> Any:
     """Load SpeechBrain ECAPA-TDNN model."""
     print("[+] Loading SpeechBrain ECAPA-TDNN model...")
     # Use GPU if available
@@ -42,7 +70,7 @@ def load_model():
     )
     return classifier, device
 
-def preprocess_audio(file_path):
+def preprocess_audio(file_path:str) -> Any:
     """Load, resample to 16k, and mix to mono."""
     try:
         signal, fs = torchaudio.load(file_path)
@@ -61,7 +89,7 @@ def preprocess_audio(file_path):
         print(f"[!] Error loading {file_path}: {e}")
         return None
 
-def compute_or_load_embeddings(input_dir, cache_path):
+def compute_or_load_embeddings(input_dir:str, cache_path:str) -> Tuple[List[str], List[Any]]:
     """Compute embeddings using SpeechBrain or load from cache."""
     if os.path.exists(cache_path):
         print(f"[+] Cached embeddings found. Loading from {cache_path} ...")
@@ -80,9 +108,9 @@ def compute_or_load_embeddings(input_dir, cache_path):
 
     print(f"[+] Found {len(wav_files)} WAV files. Filtering and Extracting...")
     
-    valid_files = []
-    embeddings = []
-    short_files = []
+    valid_files: List[str] = []
+    embeddings: List[Any] = []
+    short_files: List[str] = []
 
     # Process Loop
     for f in tqdm(wav_files, ncols=80):
@@ -124,7 +152,7 @@ def compute_or_load_embeddings(input_dir, cache_path):
     
     return valid_files, embeddings
 
-def cluster_embeddings(wav_files, embeddings, output_dir):
+def cluster_embeddings(wav_files:List[str], embeddings:List[Any], output_dir:str):
     """Cluster using UMAP reduction + HDBSCAN."""
     
     # 1. Dimensionality Reduction using UMAP (Better than PCA for speakers)
@@ -132,7 +160,7 @@ def cluster_embeddings(wav_files, embeddings, output_dir):
     reducer = umap.UMAP(
         n_neighbors=UMAP_NEIGHBORS,
         n_components=UMAP_COMPONENTS,
-        min_dist=0.0,
+        min_dist=MIN_DISTANCE,
         metric='cosine', # Cosine distance is better for embeddings
         random_state=42
     )
@@ -193,9 +221,9 @@ def cluster_embeddings(wav_files, embeddings, output_dir):
     print(f"    - Identified Clusters: {len(unique_labels)}")
     print(f"    - Unsorted/Noise: {len(noise_indices)}")
 
-def main(input_dir, output_dir):
+def main(input_dir:str, output_dir:str):
     os.makedirs(output_dir, exist_ok=True)
-    cache_path = os.path.join(output_dir, EMBEDDINGS_CACHE_NAME)
+    cache_path = os.path.join(input_dir, EMBEDDINGS_CACHE_NAME)
 
     wav_files, embeddings = compute_or_load_embeddings(input_dir, cache_path)
     cluster_embeddings(wav_files, embeddings, output_dir)
